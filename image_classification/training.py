@@ -9,12 +9,14 @@ from . import resnet as models
 from . import utils
 from .debug import dump, fast_dump, plot_bin_hist, write_errors, fast_dump_2, variance_profile, get_var, plot_weight_hist
 
-try:
-    from apex.parallel import DistributedDataParallel as DDP
-    from apex.fp16_utils import *
-    from apex import amp
-except ImportError:
-    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+from torch.cuda import amp
+
+# try:
+#     from apex.parallel import DistributedDataParallel as DDP
+#     from apex.fp16_utils import *
+#     from apex import amp
+# except ImportError:
+#     raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
 
 class ModelAndLoss(nn.Module):
@@ -31,7 +33,8 @@ class ModelAndLoss(nn.Module):
         if cuda:
             model = model.cuda()
         if fp16:
-            model = network_to_half(model)
+            # model = network_to_half(model)
+            pass
 
         # define loss function (criterion) and optimizer
         criterion = loss()
@@ -43,13 +46,15 @@ class ModelAndLoss(nn.Module):
         self.loss = criterion
 
     def forward(self, data, target):
-        output = self.model(data)
-        loss = self.loss(output, target)
+        with amp.autocast():
+            output = self.model(data)
+            loss = self.loss(output, target)
 
         return loss, output
 
     def distributed(self):
-        self.model = DDP(self.model)
+        # self.model = DDP(self.model)
+        pass
 
     def load_model_state(self, state):
         if not state is None:
@@ -81,10 +86,11 @@ def get_optimizer(parameters, fp16, lr, momentum, weight_decay,
                                     weight_decay=weight_decay,
                                     nesterov = nesterov)
     if fp16:
-        optimizer = FP16_Optimizer(optimizer,
-                                   static_loss_scale=static_loss_scale,
-                                   dynamic_loss_scale=dynamic_loss_scale,
-                                   verbose=False)
+        # optimizer = FP16_Optimizer(optimizer,
+        #                            static_loss_scale=static_loss_scale,
+        #                            dynamic_loss_scale=dynamic_loss_scale,
+        #                            verbose=False)
+        pass
 
     if not state is None:
         optimizer.load_state_dict(state)
@@ -179,13 +185,15 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
         if fp16:
             optimizer.backward(loss)
         elif use_amp:
-            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                scaled_loss.backward()
+            # with amp.scale_loss(loss, optimizer) as scaled_loss:
+            #     scaled_loss.backward()
+            pass
         else:
             loss.backward()
 
         if optimizer_step:
-            opt = optimizer.optimizer if isinstance(optimizer, FP16_Optimizer) else optimizer
+            # opt = optimizer.optimizer if isinstance(optimizer, FP16_Optimizer) else optimizer
+            opt = optimizer
             for param_group in opt.param_groups:
                 for param in param_group['params']:
                     param.grad /= batch_size_multiplier
@@ -237,9 +245,9 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         it_time = time.time() - end
 
         if logger is not None:
-            logger.log_metric('train.top1', to_python_float(prec1))
-            logger.log_metric('train.top5', to_python_float(prec5))
-            logger.log_metric('train.loss', to_python_float(loss))
+            logger.log_metric('train.top1', prec1.item())
+            logger.log_metric('train.top5', prec5.item())
+            logger.log_metric('train.loss', loss.item())
             logger.log_metric('train.compute_ips', calc_ips(bs, it_time - data_time))
             logger.log_metric('train.total_ips', calc_ips(bs, it_time))
             logger.log_metric('train.data_time', data_time)
@@ -306,11 +314,11 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
         it_time = time.time() - end
 
-        top1.record(to_python_float(prec1), bs)
+        top1.record(prec1.item(), bs)
         if logger is not None:
-            logger.log_metric('val.top1', to_python_float(prec1))
-            logger.log_metric('val.top5', to_python_float(prec5))
-            logger.log_metric('val.loss', to_python_float(loss))
+            logger.log_metric('val.top1', prec1.item())
+            logger.log_metric('val.top5', prec5.item())
+            logger.log_metric('val.loss', loss.item())
             logger.log_metric('val.compute_ips', calc_ips(bs, it_time - data_time))
             logger.log_metric('val.total_ips', calc_ips(bs, it_time))
             logger.log_metric('val.data_time', data_time)
